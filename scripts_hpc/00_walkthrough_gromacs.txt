@@ -1,0 +1,282 @@
+squeue -u `whoami` > cek running
+sinfo > cek daftar node
+squeue > cek antrian
+
+# module
+srun --partition=interactive --pty /bin/bas
+srun --partition=interactive --cpus-per-task=36 --pty /bin/bash
+
+module load gcc/11.4.0           
+module load bioinformatics/gromacs/2023.3-mpi 
+
+module load bioinformatics/gromacs/2023-plumed-mpi   
+module load bioinformatics/gromacs/2023-plumed 
+
+gmx_mpi pdb2gmx -f model.000.09_NS3_TLR4_fixed.pdb -o processed.gro -water tip3p -ignh
+
+gmx_mpi editconf -f processed.gro -o boxed.gro -c -d 2 -bt cubic
+
+gmx_mpi solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top
+
+nano ions.mdp
+integrator = steep
+emtol = 1000.0
+nsteps = 500
+
+gmx_mpi grompp -f ions.mdp -c solvated.gro -p topol.top -o ions.tpr
+
+gmx_mpi genion -s ions.tpr -o solvated_ions.gro -p topol.top -pname NA -nname CL -neutral -conc 0.15
+
+
+nano em.mdp
+integrator  = steep
+emtol       = 1000.0
+emstep      = 0.02
+nsteps      = 1000 
+cutoff-scheme = Verlet
+ns_type     = grid
+coulombtype = PME
+rcoulomb    = 1.0
+rvdw        = 1.0
+pbc         = xyz
+
+gmx_mpi grompp -f /media/rattyananda/DATA/nauval_mrnavac/mRNA_vac/ready_to_run/em.mdp
+ -c solvated_ions.gro -p topol.top -o em.tpr
+
+gmx_mpi grompp -f em.mdp -c solvated_ions.gro -p topol.top -o em.tpr
+
+gmx_mpi mdrun -deffnm em & > dont run another task in same terminal > task killed
+
+gmx_mpi energy -f em.edr -o potential.xvg > check results
+
+done
+
+nano nvt.mdp
+title                    = NVT equilibration
+define                   = -DPOSRES         ; apply position restraints
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000           
+nstxout                  = 1000
+nstvout                  = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+
+continuation             = no
+constraint_algorithm     = lincs
+constraints              = all-bonds
+cutoff-scheme            = Verlet
+
+ns_type                  = grid
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1
+ref_t                    = 310 310
+pbc                      = xyz
+
+##
+
+title                    = NVT equilibration
+define                   = -DPOSRES         ; apply position restraints
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000            ; 100 ps
+nstxout                  = 1000
+nstvout                  = 1000
+nstxout-compressed       = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+
+continuation             = no
+constraint_algorithm     = lincs
+constraints              = all-bonds
+
+cutoff-scheme            = Verlet
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+fourierspacing           = 0.12
+
+; Temperature coupling
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1 
+ref_t                    = 310 310
+
+; No pressure coupling in NVT
+pcoupl                   = no
+
+pbc                      = xyz
+
+
+gmx_mpi grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -o nvt.tpr
+
+gmx_mpi mdrun -deffnm nvt
+
+gmx_mpi energy -f nvt.edr -o temperature.xvg
+
+nano npt.mdp
+title                    = NPT equilibration
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000   
+nstxout                  = 1000
+nstvout                  = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+continuation             = yes
+constraint_algorithm     = lincs
+constraints              = all-bonds
+cutoff-scheme            = Verlet
+ns_type                  = grid
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1
+ref_t                    = 300 300
+pcoupl                   = Parrinello-Rahman
+pcoupltype               = isotropic
+tau_p                    = 2.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+pbc                      = xyz
+
+##
+title                    = NPT equilibration
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000            ; 100 ps
+nstxout                  = 1000
+nstvout                  = 1000
+nstxout-compressed       = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+
+continuation             = yes
+constraint_algorithm     = lincs
+constraints              = all-bonds
+
+cutoff-scheme            = Verlet
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+fourierspacing           = 0.12
+DispCorr                 = EnerPres
+
+; Temperature coupling (from NVT)
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1         ; or 0.5 0.5 for gentler coupling
+ref_t                    = 310 310
+
+; Pressure coupling - recommended for equilibration:
+pcoupl                   = Parrinello-Rahman
+pcoupltype               = isotropic
+tau_p                    = 2.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+
+pbc                      = xyz
+
+; Do NOT generate velocities for continuation runs
+gen_vel                  = no
+
+
+gmx_mpi grompp -f npt.mdp -c nvt.gro -p topol.top -o npt.tpr
+
+gmx_mpi mdrun -deffnm npt &
+
+nano md.mdp
+title                    = Production MD
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000
+nstxout                  = 1000
+nstvout                  = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+continuation             = yes
+constraint_algorithm     = lincs
+constraints              = all-bonds
+cutoff-scheme            = Verlet
+ns_type                  = grid
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1
+ref_t                    = 300 300
+pcoupl                   = Parrinello-Rahman
+pcoupltype               = isotropic
+tau_p                    = 2.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+pbc                      = xyz
+
+gmx_mpi grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr
+
+gmx_mpirun -np 4 gmx_mpi mdrun -deffnm md &
+
+gmx_mpi mdrun -s md.tpr -cpi md_run.cpt -deffnm md_run & > lanjut dari cpt
+
+gmx_mpi trjconv -s md.tpr -f md_run.trr -o md_run.xtc
+
+gmx_mpi trjconv -s md.tpr -f md_run.xtc -o md_run_noPBC.xtc -pbc mol -ur compact
+
+##
+; md.mdp - Production MD 100 ns
+title                    = Production MD
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000000        ; 50,000,000 * 0.002 ps = 100000 ps = 100 ns
+
+; Output control (less frequent for production)
+nstxout                  = 1000
+nstvout                  = 1000
+nstxout-compressed       = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+
+continuation             = yes
+constraint_algorithm     = lincs
+constraints              = all-bonds
+
+cutoff-scheme            = Verlet 
+nstlist                  = 20
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+fourierspacing           = 0.12
+DispCorr                 = EnerPres
+
+; Temperature coupling - production (option A: Nose-Hoover)
+tcoupl                   = Nose-Hoover
+tc-grps                  = Protein Non-Protein
+tau_t                    = 1.0 1.0
+ref_t                    = 310 310
+
+; Pressure coupling (Parrinello-Rahman)
+pcoupl                   = Parrinello-Rahman
+pcoupltype               = isotropic
+tau_p                    = 2.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+
+pbc                      = xyz
+
+; Do NOT generate velocities for production runs
+gen_vel                  = no
+
+

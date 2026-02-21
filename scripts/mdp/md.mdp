@@ -1,0 +1,42 @@
+; md.mdp - Production MD 100 ns
+title                    = Production MD
+integrator               = md
+dt                       = 0.002
+nsteps                   = 50000000        ; 100,000,000 * 0.01 ps = 100000 ps = 100 ns
+
+; Output control (less frequent for production)
+nstxout                  = 0
+nstvout                  = 0
+nstxout-compressed       = 5000
+nstenergy                = 10000
+nstlog                   = 10000
+
+continuation             = yes
+constraint_algorithm     = lincs
+constraints              = h-bonds
+
+cutoff-scheme            = Verlet 
+nstlist                  = 20
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+fourierspacing           = 0.12
+DispCorr                 = EnerPres
+
+; Temperature coupling - production (option A: Nose-Hoover)
+tcoupl                   = Nose-Hoover
+tc-grps                  = Protein Non-Protein
+tau_t                    = 1.0 1.0
+ref_t                    = 310 310
+
+; Pressure coupling (Parrinello-Rahman)
+pcoupl                   = Parrinello-Rahman
+pcoupltype               = isotropic
+tau_p                    = 2.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+
+pbc                      = xyz
+
+; Do NOT generate velocities for production runs
+gen_vel                  = no

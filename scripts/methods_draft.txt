@@ -1,0 +1,55 @@
+Methods
+
+System preparation
+- Initial structure files (.pdb) were processed with GROMACS `pdb2gmx` to generate topologies and coordinate files. The scripts use the TIP3P water model and select a force field interactively (the original run used option 15 during `pdb2gmx`). Box vectors were defined by `editconf` with a minimum 0.8 nm solvent padding and a cubic box.
+- Solvation was performed with `gmx solvate` using `spc216.gro` as the solvent reference. Ions were added to neutralize the system and reach 0.15 M ionic strength via `gmx genion` with `-pname NA -nname CL -neutral -conc 0.15`.
+- Per-system working directories were created from the input PDB names with a `_prep` suffix; each directory contains `processed.gro`, `boxed.gro`, `solvated.gro`, `solvated_ions.gro`, and `topol.top`.
+
+Energy minimization
+- Energy minimization input files are provided as `em_none.mdp`/`em.mdp`. Minimization uses the steepest-descent integrator. Example parameters: `emtol = 100.0` (or 1000.0 in one variant), `emstep = 0.01`, and up to `nsteps = 50000`.
+- Minimization jobs are prepared via `gmx grompp -f em.mdp -c solvated_ions.gro -p topol.top -o em.tpr -maxwarn 1` and executed with `gmx mdrun -deffnm em`. Some automation submits minimizations with `nohup ... &` to run in background; potential energies are extracted with `gmx energy -f em.edr -o potential.xvg` (energy selection index 10 in the scripts).
+
+Equilibration
+- NVT: Position restraints are used during the NVT phase (`define = -DPOSRES`) with `nvt.mdp`. Key parameters: `dt = 0.001 ps`, `nsteps = 100000` (100 ps), velocity coupling via V-rescale (`tcoupl = V-rescale`) with groups `Protein` and `Non-Protein`, `tau_t = 0.1 ps`, `ref_t = 310 K`. Pressure coupling is disabled (`pcoupl = no`). The scripts run `grompp` to make `nvt.tpr` then `gmx mdrun -deffnm nvt` and extract temperature via `gmx energy`.
+- NPT: Performed after NVT using `npt.mdp` with `dt = 0.001 ps`, `nsteps = 100000` (100 ps), temperature coupling via V-rescale (`tau_t = 0.1 ps`, ref 310 K), and pressure coupling using Parrinello–Rahman (`pcoupl = Parrinello-Rahman`, `tau_p = 2.0 ps`, `ref_p = 1.0 bar`, `compressibility = 4.5e-5`). `grompp` generates `npt.tpr` and `gmx mdrun -deffnm npt` runs the equilibration.
+
+Production molecular dynamics
+- Production MD is configured in `md.mdp`. Key parameters extracted from the file:
+  - Integrator: `md`
+  - Time step: `dt = 0.002 ps`
+  - Number of steps: `nsteps = 50000000` → total simulated time = 50,000,000 * 0.002 ps = 100,000 ps = 100 ns (as used in the scripts)
+  - Output control: compressed trajectory every 5000 steps (`nstxout-compressed = 5000`), energy and log every 10000 steps
+  - Constraints: `constraints = h-bonds` with LINCS
+  - Cutoffs: `rcoulomb = 1.0 nm`, `rvdw = 1.0 nm`, `cutoff-scheme = Verlet`, `coulombtype = PME` and `fourierspacing = 0.12`
+  - Temperature coupling: Nose–Hoover (`tcoupl = Nose-Hoover`) with `tau_t = 1.0 ps` and reference `ref_t = 310 K` for groups `Protein` and `Non-Protein`
+  - Pressure coupling: Parrinello–Rahman (`pcoupl = Parrinello-Rahman`, `tau_p = 2.0 ps`, `ref_p = 1.0 bar`)
+  - `gen_vel = no` to continue velocities when resuming
+
+- Production runs are prepared with `gmx grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -o md.tpr -maxwarn 1` and executed with MPI: `mpirun -np 4 gmx_mpi mdrun -deffnm md` (scripts call `gmx_mpi` and `mpirun -np 4`).
+- The workflow includes a resume-capable runner (`md_gromacs_16_resume.sh`) that will check for `md.cpt` checkpoint files and resume with `-cpi md.cpt -append` when present.
+
+Trajectory processing and analysis
+- After production, trajectories are converted from TRR to XTC with `gmx trjconv -s md.tpr -f md.trr -o md.xtc` (non-interactive by piping index 0). Periodic boundary corrections for compact representation use `-pbc mol -ur compact` to produce `md_noPBC.xtc` for visualization and downstream analysis.
+- Temperature and potential energy time series are exported from energy files via `gmx energy`.
+
+Software, execution and parallelization
+- The scripts consistently use the MPI-enabled GROMACS binary (`gmx_mpi`) launched through `mpirun -np 4` for production and resume runs. Other tools used include `pdb2gmx`, `editconf`, `solvate`, `genion`, `grompp`, `mdrun`, `trjconv`, and `energy`.
+- The automation was designed to run sequentially over multiple prepared system folders (patterns like `*_fixed_prep`, `model.*_fixed_prep`) to submit or run jobs per directory. Some steps (minimization) may be backgrounded using `nohup`.
+
+Notes and recommended reporting items for Methods
+- Report force field choice (the scripts supply a numeric menu choice during `pdb2gmx` — record which force field index was used; TIP3P water was used).
+- Report full `md.mdp`, `nvt.mdp`, `npt.mdp`, and `em.mdp` as supplementary files (these are present in the `mdp/` folder).
+- State hardware used (number of MPI ranks = 4 in scripts) and any MPI/OpenMPI versions when reporting performance.
+- State how trajectories were processed (TRR→XTC conversion and PBC removal with `-pbc mol -ur compact`) and how energies/temperatures were extracted.
+
+Files referenced in this repository
+- Preparation script: [prep_gromacs.sh](prep_gromacs.sh)
+- Energy minimization script: [min_gromacs.sh](min_gromacs.sh)
+- NVT/NPT scripts: [nvt_gromacs.sh](nvt_gromacs.sh), [npt_gromacs.sh](npt_gromacs.sh)
+- Production runs: [md_gromacs_02.sh](md_gromacs_02.sh), [md_gromacs_09.sh](md_gromacs_09.sh), [md_gromacs_11.sh](md_gromacs_11.sh), [md_gromacs_16.sh](md_gromacs_16.sh), [md_gromacs_16_resume.sh](md_gromacs_16_resume.sh)
+- GROMACS parameter files: [mdp/em_none.mdp](mdp/em_none.mdp), [mdp/em.mdp](mdp/em.mdp), [mdp/ions.mdp](mdp/ions.mdp), [mdp/md.mdp](mdp/md.mdp), [mdp/npt.mdp](mdp/npt.mdp), [mdp/nvt.mdp](mdp/nvt.mdp)
+
+This draft is based strictly on the commands and parameters in the scripts and `.mdp` files in the repository. If you want, I can:
+- convert these notes into a formatted Methods section for a manuscript (Nature/Science/PNAS style),
+- extract exact force-field names and versions by running `pdb2gmx` with the recorded choice, or
+- generate a compact parameter table (CSV) from the `.mdp` files for inclusion in supplementary material.

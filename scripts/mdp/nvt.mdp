@@ -1,0 +1,32 @@
+title                    = NVT equilibration
+define                   = -DPOSRES         ; apply position restraints
+integrator               = md
+dt                       = 0.001
+nsteps                   = 100000            ; 100 ps
+nstxout                  = 1000
+nstvout                  = 1000
+nstxout-compressed       = 1000
+nstenergy                = 1000
+nstlog                   = 1000
+
+continuation             = no
+constraint_algorithm     = lincs
+constraints              = h-bonds
+
+cutoff-scheme            = Verlet
+nstlist                  = 10
+rcoulomb                 = 1.0
+rvdw                     = 1.0
+coulombtype              = PME
+fourierspacing           = 0.12
+
+; Temperature coupling
+tcoupl                   = V-rescale
+tc-grps                  = Protein Non-Protein
+tau_t                    = 0.1 0.1 
+ref_t                    = 310 310
+
+; No pressure coupling in NVT
+pcoupl                   = no
+
+pbc                      = xyz

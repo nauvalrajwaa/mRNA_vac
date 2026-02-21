@@ -1,0 +1,25 @@
+; em.mdp - energy minimization (recommended for production)
+integrator  = steep
+emtol       = 100.0
+emstep      = 0.01
+nsteps      = 50000
+nstenergy   = 10
+energygrps  = System
+
+; neighborsearching
+cutoff-scheme = Verlet
+ns_type     = grid
+
+; electrostatics
+coulombtype = PME
+rcoulomb    = 1.0
+
+; van der Waals
+rvdw        = 1.0
+
+; periodic boundary conditions
+pbc         = xyz
+
+; write control
+nstlist     = 10
+constraints = none

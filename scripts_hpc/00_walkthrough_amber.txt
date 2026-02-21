@@ -1,0 +1,82 @@
+squeue -u `whoami` > cek running
+sinfo > cek daftar node
+squeue > cek antrian
+
+# module
+srun --partition=interactive --pty /bin/bas
+srun --partition=interactive --cpus-per-task=36 --pty /bin/bash
+
+
+module load bioinformatics/amber/24
+module load gcc/11.4.0
+
+
+-----------------------------------------------Tahap Preparasi
+amber4pdb xx.pdb > xx'.pdb > convert format
+
+tleap
+source leaprc.protein.ff14SB 
+source leaprc.gaff
+source leaprc.water.tip3p
+complex = loadpdb 02_complex.rev1.pdb
+savepdb complex 02_complex.rev1.pdb
+
+fixing manual pdb > Nxx atom H numbering
+
+saveamberparm complex 02_complex.prmtop 02_complex.inpcrd
+
+solvatebox complex TIP3PBOX 3.0
+saveamberparm complex 02_complex_solv.prmtop 02_complex_solv.inpcrd
+
+savepdb complex 02_complex_solv.pdb
+quit
+
+nano min1, min2
+nano qheat
+nano produksi
+
+adjust heat.in min.in > last res solvate
+
+------------------------------------------Tahap MD----------------------------------------------------------------
+sander -O -i 03_min1.in -o 03_min1.out -p 02_complex_solv.prmtop -c 02_complex_solv.inpcrd -ref 02_complex_solv.inpcrd -r 03_min1.rst
+
+sander -O -i 03_min2.in -o 03_min2.out -p 02_complex_solv.prmtop -c 03_min1.rst -r 03_min2.rst
+
+pmemd.cuda -O -i 03_qheat.in -o 03_qheat.out -p 02_complex_solv.prmtop -c 03_min2.rst -ref 03_min2.rst -r 03_qheat.rst -x 03_qheat.coor
+
+pmemd.cuda -O -i 04_promd_100ns.in -o 04_promd_100ns.out -p 02_complex_solv.prmtop -c 03_qheat.rst -r 04_promd_100ns.rst -x 04_promd_100ns.coor
+
+tail -f 03_min1.out
+
+------------------------------------------Tahap Analisis----------------------------------------------------------------
+cpptraj
+parm 02_complex_solv.prmtop
+trajin 04_promd_100ns.coor
+
+rms ToFirst :1-1091&!@H= first out 05_RMSD_protein.agr mass
+rms ToFirst :1092-1374&!@H= first out 05_RMSD_ligand.agr mass
+rmsf :1-1091&@C,CA,N out 05_RMSF_protein.agr byres
+rmsf :1092-1374&@C,CA,N out 05_RMSF_ligand.agr byres
+
+radgyr :1-694&!(@H=) out 6_RoG.dat mass nomax 
+radgyr CA.CA out 6_radgyr_CA.dat
+hbond contacts :1-695 out 6_nhb.dat avgout 6_nhb_avg.dat series uuseries 6_hbond_XAN.gnu printatomnum nointramol
+hbond :1-695 avgout 6_HBond.dat
+surf :1-695 out 6_SURF.agr
+energy :1-695 out 6_E_PRO.agr
+run
+quit
+
+trajout 05_promd_ns_000.crd onlyframes 1
+trajout 05_promd_ns_020.crd onlyframes 2000
+trajout 05_promd_ns_040.crd onlyframes 4000
+trajout 05_promd_ns_060.crd onlyframes 6000
+trajout 05_promd_ns_080.crd onlyframes 8000
+trajout 05_promd_ns_100.crd onlyframes 10000
+
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_000.crd > 05_complex_ns_000.pdb
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_020.crd > 05_complex_ns_020.pdb
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_040.crd > 05_complex_ns_040.pdb
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_060.crd > 05_complex_ns_060.pdb
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_080.crd > 05_complex_ns_080.pdb
+ambpdb -p 02_complex_solv.prmtop -c 05_promd_ns_100.crd > 05_complex_ns_100.pdb
